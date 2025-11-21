@@ -7,3 +7,6 @@
 
 # ignore ds_store files
 .DS_Store
+
+# ignore model checkpoints
+model_training/trained_models/*

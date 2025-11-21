@@ -122,7 +122,9 @@ class Exp1Trainer:
         accumulation_steps = target_batch_size // cuda_batch_size
         print(f"Using gradient accumulation with {accumulation_steps} steps")
         print(f"Target batch size: {target_batch_size} | Effective batch size: {cuda_batch_size * accumulation_steps}")
+        
         self.optimizer.zero_grad()
+        
         # Initialize loss accumulator
         total_loss = 0
         num_batches = 0
@@ -264,7 +266,7 @@ class Exp1Trainer:
             'val_per': val_per,
             'best_val_per': self.best_val_per,
         }, path)
-        print(f"Saved checkpoint to {path}")
+        #print(f"Saved checkpoint to {path}")
 
 
 def load_config(yaml_path):
