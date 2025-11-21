@@ -30,7 +30,8 @@ class DayAdapter(nn.Module):
 
         for day_idx in unique_days:
             mask = day_indicies == day_idx
-            out[mask] = self.adapters[day_idx](x[mask])
+            adapter_out = self.adapters[day_idx](x[mask])
+            out[mask] = adapter_out.to(dtype=x.dtype)
 
         return out
 

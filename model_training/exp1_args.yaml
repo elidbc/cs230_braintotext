@@ -8,6 +8,8 @@ experiment:
 
 
 model:
+  lr_min: 0.0001
+  lr_max_day: 0.005
   adapter:
     neural_dim: 512
     hidden_dim: 256
@@ -22,7 +24,6 @@ model:
   neural_dim: 512
   patch_size: 14
   patch_stride: 4
-
 
 dataset:
   data_transforms:

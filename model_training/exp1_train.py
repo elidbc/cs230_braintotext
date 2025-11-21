@@ -22,9 +22,9 @@ class Exp1Trainer:
 
         # Params and Optimizer
         bias_params = [p for name, p in self.model.named_parameters() if 'bias' in name]
-        adapter_params = [p for name, p in self.model.named_parameters() if 'day_adapter' in name]
-        gru_params = [p for name, p in self.model.named_parameters() if 'gru_decoder' in name]
-        classifier_params = [p for name, p in self.model.named_parameters() if 'classifier' in name]
+        adapter_params = [p for name, p in self.model.named_parameters() if 'day_adapter' in name and 'bias' not in name]
+        gru_params = [p for name, p in self.model.named_parameters() if 'gru_decoder' in name and 'bias' not in name]
+        classifier_params = [p for name, p in self.model.named_parameters() if 'classifier' in name and 'bias' not in name]
 
         self.optimizer = torch.optim.AdamW([
             {'params': bias_params, 'weight_decay': 0.0},
@@ -42,8 +42,16 @@ class Exp1Trainer:
 
         # Loss
         self.ctc_loss = torch.nn.CTCLoss(blank = 0, reduction = 'none', zero_infinity = False)
+        self.transform_args = self.config['dataset']['data_transforms']
 
-        self.transform_args = self.config['dataset']['data_transforms']        
+        # History
+        self.history = {
+            'train_loss': [],
+            'val_loss': [],
+            'val_per': [],
+            'steps': [],
+        }
+        self.best_val_per = float('inf')
 
     def _calculate_input_lengths(self, n_time_steps):
         """
@@ -147,11 +155,24 @@ class Exp1Trainer:
             # 6. Log training progress
             if batch_idx % 100 == 0:
                 lr = self.scheduler.get_last_lr()[0]
+                self.history['train_loss'].append(loss.item())
                 print(f"Step: {batch_idx} | Loss: {loss.item():.4f} | Lr: {lr:.6f} | Time: {time.time() - start_time:.2f}s")
             
             if batch_idx % 1000 == 0:
-                val_per = self.validate(val_loader)
-                self.save_checkpoint(batch_idx, val_per)
+                val_per, val_loss = self.validate(val_loader)
+                self.history['val_loss'].append(val_loss)
+                self.history['val_per'].append(val_per)
+                self.history['steps'].append(batch_idx)
+                
+                self.save_checkpoint(batch_idx, val_per, filename="checkpoint_latest.pt")
+
+                if val_per < self.best_val_per:
+                    print(f"New best PER: {val_per:.4f}")
+                    self.best_val_per = val_per
+                    self.save_checkpoint(batch_idx, val_per, filename="checkpoint_best.pt")
+
+                with open(os.path.join(self.output_dir, 'history.pkl'), 'wb') as f:
+                    pickle.dump(self.history, f)
                 self.model.train()
 
     def validate(self, val_loader):
@@ -163,6 +184,8 @@ class Exp1Trainer:
 
         total_edit_distance = 0
         total_length = 0
+        total_val_loss = 0
+        num_batches = 0
 
         with torch.no_grad():
             for batch_idx, batch in enumerate(val_loader):
@@ -177,6 +200,16 @@ class Exp1Trainer:
                 input_lengths = self._calculate_input_lengths(n_time_steps)
 
                 logits = self.model(x, day_indicies) # shape: (batch_size, max_seq_length, num_classes)
+
+                log_probs = logits.log_softmax(dim=2).permute(1, 0, 2)
+                loss = self.ctc_loss(
+                    log_probs = log_probs,
+                    targets = labels,
+                    input_lengths = input_lengths,
+                    target_lengths = phone_seq_lens,
+                )
+                total_val_loss += torch.mean(loss).item() # take mean loss over batches
+                num_batches += 1
 
                 preds = torch.argmax(logits, dim=2) # shape: (batch_size, max_seq_length)
 
@@ -198,21 +231,23 @@ class Exp1Trainer:
                     total_edit_distance += dist
                     total_length += length
 
-        per = total_edit_distance / total_length
-        print(f"Validation PER: {per:.4f}")
-        return per
+        avg_per = total_edit_distance / total_length
+        avg_val_loss = total_val_loss / num_batches
+        print(f"Validation PER: {avg_per:.4f} | Validation Loss: {avg_val_loss:.4f}")
+        return avg_per, avg_val_loss
 
-    def save_checkpoint(self, batch_idx, val_per):
+    def save_checkpoint(self, batch_idx, val_per, filename):
         """
         Save the model checkpoint
         """
-        path = os.path.join(self.output_dir, f"checkpoint_batch_{batch_idx}.pt")
+        path = os.path.join(self.output_dir, filename)
         torch.save({
             'batch_idx': batch_idx,
             'model': self.model.state_dict(),
             'optimizer': self.optimizer.state_dict(),
             'scheduler': self.scheduler.state_dict(),
             'val_per': val_per,
+            'best_val_per': self.best_val_per,
         }, path)
         print(f"Saved checkpoint to {path}")
 
@@ -283,6 +318,10 @@ def main():
 
     # 5. Initialize Model, Trainer, and Start Training
     model = Exp1Model(config, num_days=len(sessions))
+    print(f"Initialized model — number of parameters: {sum(p.numel() for p in model.parameters())}")
+    print(f"Adapter parameters: {sum(p.numel() for p in model.day_adapter.adapters.parameters())}")
+    print(f"Gru parameters: {sum(p.numel() for p in model.gru_decoder.parameters())}")
+    print(f"Classifier parameters: {sum(p.numel() for p in model.classifier.parameters())}")
     trainer = Exp1Trainer(model, config, device)
     trainer.train(train_loader, val_loader)
 
