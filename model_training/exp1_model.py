@@ -99,7 +99,7 @@ class dayAdapter(nn.Module):
             This chunks the time dimension into num_patches 
             overlapping patches of size patch_size. Then squashes
             the patch_size and feature dim back together. 
-            Essentially this creates sliding window across features, 
+            Essentially this creates sliding window across time steps, 
             since 20ms bins (default data) is too small to capture
             phonemes.
 
@@ -122,13 +122,13 @@ class dayAdapter(nn.Module):
         def forward(self, x, day_idx):
             """
             Forward pass through the model
-            1. Apply patching to input
-            2. Pass input through day-specific adapter
-            3 Pass sequence through GRU decoder
-            4 Pass GRU output through classifier
+            1. Pass input through day-specific adapter
+            2. Apply patching to input
+            3. Pass sequence through GRU decoder
+            4. Pass GRU output through classifier
             """
-            x = self._apply_patching(x)
             x = self.day_adapter(x, day_idx)
+            x = self._apply_patching(x)
             x = self.gru_decoder(x)
             logits = self.classifier(x)
             return logits
