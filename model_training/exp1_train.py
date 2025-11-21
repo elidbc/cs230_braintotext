@@ -121,13 +121,14 @@ class Exp1Trainer:
         cuda_batch_size = self.config['dataset']['batch_size']
         accumulation_steps = target_batch_size // cuda_batch_size
         print(f"Using gradient accumulation with {accumulation_steps} steps")
-        print(f"Target batch size: {target_batch_size} | Effective batch size: {cuda_batch_size * accumulation_steps}")
+        print(f"Target batch size: {target_batch_size} | Effective batch size: {cuda_batch_size}")
         
         self.optimizer.zero_grad()
         
         # Initialize loss accumulator
         total_loss = 0
         num_batches = 0
+        step_counter = 0
 
         for batch_idx, batch in enumerate(train_loader):
             start_time = time.time()
@@ -167,13 +168,15 @@ class Exp1Trainer:
                 self.optimizer.step()
                 self.scheduler.step()
                 self.optimizer.zero_grad()
-                if batch_idx % 100 == 0:
+                step_counter += 1
+                if step_counter % 16 == 0:
                     lr = self.scheduler.get_last_lr()[0]
                     raw_loss = loss.item() * accumulation_steps
                     self.history['train_loss'].append(raw_loss)
                     print(f"Step: {batch_idx} | Loss: {raw_loss:.4f} | Lr: {lr:.6f} | Time: {time.time() - start_time:.2f}s")
 
-            if batch_idx % 1000 == 0:
+            #if batch_idx % 1000 == 0:
+            if (batch_idx + 1) % accumulation_steps == 0 and step_counter % 100 == 0:
                 val_per, val_loss = self.validate(val_loader)
 
                 self.history['val_loss'].append(val_loss)
@@ -281,7 +284,8 @@ def main():
 
     # 2. Prepare Data Splits
     data_dir = config['dataset']['dataset_dir']
-    sessions = config['dataset']['sessions']
+    # try with only one session
+    sessions = config['dataset']['sessions'][:1]
     file_paths = [os.path.join(data_dir, s, 'data_train.hdf5') for s in sessions]
     
     # Create train/val splits using dataset.py
@@ -296,7 +300,7 @@ def main():
     train_ds = BrainToTextDataset(
         trial_indicies=train_trials,
         split='train',
-        days_per_batch=config['dataset']['days_per_batch'],
+        days_per_batch=min(len(sessions), config['dataset']['days_per_batch']),
         n_batches=config['experiment']['num_training_batches'],
         batch_size=config['dataset']['batch_size'],
         must_include_days=None,
@@ -334,7 +338,8 @@ def main():
     print(f"Initialized datasets and data loaders")
 
     # 5. Initialize Model, Trainer, and Start Training
-    model = Exp1Model(config, num_days=config['dataset']['n_sessions'])
+    #model = Exp1Model(config, num_days=config['dataset']['n_sessions'])
+    model = Exp1Model(config, num_days=1)
     print(f"Initialized model — number of parameters: {sum(p.numel() for p in model.parameters())}")
     print(f"Adapter parameters: {sum(p.numel() for p in model.day_adapter.adapters.parameters())}")
     print(f"Gru parameters: {sum(p.numel() for p in model.gru_decoder.parameters())}")
