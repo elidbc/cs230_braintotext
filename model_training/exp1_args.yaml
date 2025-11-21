@@ -1,12 +1,17 @@
 experiment:
   name: "mlp_adapter_v1"
   seed: 42
+  output_dir: trained_models/exp1 # directory to save the trained model and logs
+  num_training_batches: 120000 # number of training batches to run
+  gpu_number: "0"
+
 
 model:
   adapter:
+    neural_dim: 512
     hidden_dim: 256
     dropout_rate: 0.2
-    output_dim: 768
+    output_dim: 512
   gru_decoder:
     input_dim: 768
     hidden_dim: 768
